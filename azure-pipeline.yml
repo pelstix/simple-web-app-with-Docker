@@ -1,0 +1,70 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+  - develop
+  - feature/*
+  - master
+  - release/*
+  - hotfix/*
+  - bugfix/*
+  - azure-pipelines
+pr: none
+
+variables:
+  - group: dockerRefs
+  - name: IS_DEPLOYABLE_BRANCH
+    value: $[ or(startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'), startsWith(variables['Build.SourceBranch'], 'refs/heads/bugfix/'), startsWith(variables['Build.SourceBranchName'], 'refs/heads/hotfix/'), in(variables['Build.SourceBranchName'], 'master')) ]
+
+jobs:
+  - job: RunBuild
+    displayName: Run Build
+    pool:
+      vmImage: "ubuntu-latest"
+
+    steps:
+      - script: |
+          docker build -f APP/Dockerfile . -t devops-test:$(Build.BuildId)
+        displayName: "docker build API" 
+    ## Push to azure
+
+      - task: Bash@3
+        displayName: "docker login ACR"
+        inputs:
+          targetType: "inline"
+          script: |
+            docker login --username eb72f397-4261-4296-bbf0-cfb29ce23e12 --password z1P8Q~BJY5MISVYCpeGQph56xhWsqJgSiqryibgF devops911.azurecr.io
+        condition: and(succeeded(), eq(variables ['IS_DEPLOYABLE_BRANCH'], true))
+
+      - task: Bash@3
+        displayName: "docker tag API (Azure)"
+        inputs:
+          targetType: "inline"
+          script: "docker tag devops-test:$(Build.BuildId) devops911.azurecr.io/devops-test:$(Build.BuildId)"
+        condition: and(succeeded(), eq(variables ['IS_DEPLOYABLE_BRANCH'], true))
+
+      - task: Bash@3
+        displayName: docker push API
+        inputs:
+          targetType: "inline"
+          script: "docker push devops911.azurecr.io/devops-test:$(Build.BuildId)"
+        condition: and(succeeded(), eq(variables ['IS_DEPLOYABLE_BRANCH'], true))
+
+        ## End Push to Azure
+
+      - task: CopyFiles@2
+        displayName: "Copy API manifest files"
+        inputs:
+          SourceFolder: "APP"
+          Contents: |
+            deployment.yml
+          TargetFolder: "$(Agent.ArtifactStagingDirectory)/APP"
+     
+      - task: PublishBuildArtifacts@1
+        displayName: "publish artifact"
+        inputs:
+          PathtoPublish: "$(Agent.ArtifactStagingDirectory)"
+          ArtifactName: "build"
+          publishLocation: "Container"
